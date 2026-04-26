@@ -10,7 +10,7 @@
       "name": "Email Trigger (IMAP)",
       "type": "n8n-nodes-base.emailReadImap",
       "typeVersion": 2,
-      "position": [240, 300],
+      "position": [220, 300],
       "credentials": {
         "imap": {
           "id": "REPLACE_ME_IMAP_CRED_ID",
@@ -26,7 +26,48 @@
       "name": "Normalize Email",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 300]
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Deterministic pre-classification: spart Claude-Tokens, wenn der Fall eindeutig ist.\nconst item = $input.first();\nconst j = item.json;\nconst subject = (j.subject || '').toLowerCase();\nconst body = (j.bodyPreview || '').toLowerCase();\nconst from = (j.from || '').toLowerCase();\nconst text = subject + ' ' + body;\n\nconst bookingDomains = [\n  'booking.com', 'lodgify.com', 'airbnb.com', 'expedia.com',\n  'agoda.com', 'vrbo.com', 'hrs.de', 'fewo-direkt.de', 'tripadvisor.com'\n];\nconst isBookingSender = bookingDomains.some(d => from.includes(d));\n\n// Banking/Rechnungen sehen oberflächlich nach Buchung aus, sind es aber nicht.\nconst bankingKeywords = ['abgebucht', 'lastschrift', 'sepa-mandat', 'rechnung im anhang', 'mahnung', 'zahlungserinnerung'];\nconst isBanking = bankingKeywords.some(k => text.includes(k));\n\n// Buchungs-Keywords (Treffer im Body)\nconst bookingBodyKeywords = [\n  'gebucht', 'gebuchte', 'gebuchten', 'gebuchter', 'gebuchtes',\n  'ausgebucht', 'überbucht', 'umgebucht', 'vorgebucht', 'doppelgebucht',\n  'buchung', 'buchungen', 'buchungsbestätigung', 'buchungsnummer', 'buchungscode',\n  'reservierung', 'reservierungs', 'reserviert',\n  'booking confirmation', 'reservation confirmation', 'new booking', 'new reservation',\n  'check-in', 'anreise', 'arrival'\n];\n// Buchungs-Indizien im Subject (mind. eines muss zutreffen)\nconst bookingSubjectHints = [\n  'buchung', 'booking', 'reservation', 'reservierung',\n  'bestätig', 'confirm', 'gebucht', 'check-in', 'anreise'\n];\n\nconst hasBodyKeyword = bookingBodyKeywords.some(k => text.includes(k));\nconst hasSubjectHint = bookingSubjectHints.some(k => subject.includes(k));\n\n// Bewertungs-Keywords\nconst reviewKeywords = ['bewertung abgeben', 'bewerten sie', 'bewertung hinterlassen', 'bewertung erhalten', 'review request', 'leave a review', 'rate your stay', 'sterne'];\nconst hasReviewKeyword = reviewKeywords.some(k => text.includes(k));\n\n// Anfrage-Keywords (Form-Submissions / Anfragen über Website)\nconst inquiryKeywords = ['anfrage', 'verfügbarkeit', 'verfügbar', 'preis', 'angebot', 'frage zu', 'kann ich', 'wäre möglich', 'inquiry', 'availability'];\nconst hasInquiryKeyword = inquiryKeywords.some(k => text.includes(k));\nconst inquirySubjectHints = ['anfrage', 'verfügbarkeit', 'inquiry', 'request'];\nconst hasInquirySubject = inquirySubjectHints.some(k => subject.includes(k));\n\nlet preClassified = false;\nlet category = null;\nlet reason = '';\n\nif (!isBanking && isBookingSender) {\n  preClassified = true;\n  category = 'BUCHUNG';\n  reason = 'sender domain match (' + from.replace(/.*@/, '') + ')';\n} else if (!isBanking && hasBodyKeyword && hasSubjectHint) {\n  preClassified = true;\n  category = 'BUCHUNG';\n  reason = 'booking keywords in subject + body';\n} else if (hasReviewKeyword) {\n  preClassified = true;\n  category = 'BEWERTUNG';\n  reason = 'review keyword match';\n} else if (hasInquirySubject && hasInquiryKeyword) {\n  preClassified = true;\n  category = 'ANFRAGE';\n  reason = 'inquiry keywords in subject + body';\n}\n\nreturn [{\n  json: {\n    ...j,\n    preClassified,\n    preCategory: category,\n    preReason: reason\n  }\n}];"
+      },
+      "id": "node-pre-classify",
+      "name": "Pre-Classify (Keywords)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond-pre",
+              "leftValue": "={{ $json.preClassified }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "node-if-pre",
+      "name": "Pre-Classified?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => {\n  const j = item.json;\n  return {\n    json: {\n      ...j,\n      classification: {\n        category: j.preCategory,\n        confidence: 1,\n        summary: 'Automatisch klassifiziert (' + j.preReason + ').',\n        action_required: j.preCategory !== 'SONSTIGES',\n        suggested_reply: null\n      }\n    }\n  };\n});"
+      },
+      "id": "node-build-deterministic",
+      "name": "Build Deterministic Classification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 180]
     },
     {
       "parameters": {
@@ -50,7 +91,7 @@
       "name": "Claude – Classify",
       "type": "@n8n/n8n-nodes-langchain.anthropic",
       "typeVersion": 1,
-      "position": [700, 300],
+      "position": [1100, 420],
       "credentials": {
         "anthropicApi": {
           "id": "REPLACE_ME_ANTHROPIC_CRED_ID",
@@ -60,13 +101,13 @@
     },
     {
       "parameters": {
-        "jsCode": "// Parse Claude's JSON response and merge with original email\nconst items = $input.all();\nreturn items.map(item => {\n  const original = item.json.original || item.json;\n  let parsed = { category: 'SONSTIGES', confidence: 0, summary: '', action_required: false, suggested_reply: null };\n  const raw = item.json.content?.[0]?.text || item.json.text || item.json.message || '';\n  try {\n    const match = raw.match(/\\{[\\s\\S]*\\}/);\n    if (match) parsed = { ...parsed, ...JSON.parse(match[0]) };\n  } catch (e) {\n    parsed.summary = 'Klassifikation fehlgeschlagen: ' + (e.message || 'unknown');\n  }\n  return {\n    json: {\n      ...original,\n      classification: parsed\n    }\n  };\n});"
+        "jsCode": "const items = $input.all();\nreturn items.map(item => {\n  const original = item.json.original || item.json;\n  let parsed = { category: 'SONSTIGES', confidence: 0, summary: '', action_required: false, suggested_reply: null };\n  const raw = item.json.content?.[0]?.text || item.json.text || item.json.message || '';\n  try {\n    const match = raw.match(/\\{[\\s\\S]*\\}/);\n    if (match) parsed = { ...parsed, ...JSON.parse(match[0]) };\n  } catch (e) {\n    parsed.summary = 'Klassifikation fehlgeschlagen: ' + (e.message || 'unknown');\n  }\n  return {\n    json: {\n      ...original,\n      classification: parsed\n    }\n  };\n});"
       },
       "id": "node-parse-classification",
       "name": "Parse Classification",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [940, 300]
+      "position": [1320, 420]
     },
     {
       "parameters": {
@@ -131,7 +172,7 @@
       "name": "Route by Category",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3,
-      "position": [1180, 300]
+      "position": [1560, 300]
     },
     {
       "parameters": {
@@ -146,7 +187,7 @@
       "name": "Telegram → Buchungen",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1440, 100],
+      "position": [1820, 100],
       "credentials": {
         "telegramApi": {
           "id": "REPLACE_ME_TELEGRAM_CRED_ID",
@@ -167,7 +208,7 @@
       "name": "Telegram → Anfragen",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1440, 280],
+      "position": [1820, 280],
       "credentials": {
         "telegramApi": {
           "id": "REPLACE_ME_TELEGRAM_CRED_ID",
@@ -188,7 +229,7 @@
       "name": "Telegram → Bewertungen",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1440, 460],
+      "position": [1820, 460],
       "credentials": {
         "telegramApi": {
           "id": "REPLACE_ME_TELEGRAM_CRED_ID",
@@ -209,7 +250,7 @@
       "name": "Telegram → Sonstiges",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1440, 640],
+      "position": [1820, 640],
       "credentials": {
         "telegramApi": {
           "id": "REPLACE_ME_TELEGRAM_CRED_ID",
@@ -223,7 +264,19 @@
       "main": [[{ "node": "Normalize Email", "type": "main", "index": 0 }]]
     },
     "Normalize Email": {
-      "main": [[{ "node": "Claude – Classify", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Pre-Classify (Keywords)", "type": "main", "index": 0 }]]
+    },
+    "Pre-Classify (Keywords)": {
+      "main": [[{ "node": "Pre-Classified?", "type": "main", "index": 0 }]]
+    },
+    "Pre-Classified?": {
+      "main": [
+        [{ "node": "Build Deterministic Classification", "type": "main", "index": 0 }],
+        [{ "node": "Claude – Classify", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Deterministic Classification": {
+      "main": [[{ "node": "Route by Category", "type": "main", "index": 0 }]]
     },
     "Claude – Classify": {
       "main": [[{ "node": "Parse Classification", "type": "main", "index": 0 }]]
