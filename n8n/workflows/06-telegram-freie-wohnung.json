@@ -1,0 +1,245 @@
+{
+  "name": "06 – Telegram /freie_wohnung – Verfügbarkeit + Preise (Lodgify)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"],
+        "additionalFields": {}
+      },
+      "id": "node-tg-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME_TELEGRAM_CRED_ID",
+          "name": "Telegram Move-in2Stay Bot"
+        }
+      },
+      "webhookId": "REPLACE_ME_TG_WEBHOOK_FREIE"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond-cmd",
+              "leftValue": "={{ $json.message?.text || '' }}",
+              "rightValue": "/freie_wohnung",
+              "operator": { "type": "string", "operation": "startsWith" }
+            },
+            {
+              "id": "cond-allowed-chat",
+              "leftValue": "={{ String($json.message?.chat?.id) }}",
+              "rightValue": "={{ $vars.TELEGRAM_CHAT_OPS }}",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "node-filter",
+      "name": "Filter Command",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = ($input.first().json.message?.text || '').trim();\nconst parts = text.split(/\\s+/).slice(1);\nif (parts.length < 2) {\n  return [{ json: { error: 'Format: /freie_wohnung <Stadt> <von>-<bis>  z. B. /freie_wohnung Halle 15.5.-20.5.', chatId: $input.first().json.message.chat.id } }];\n}\nconst city = parts[0];\nconst range = parts.slice(1).join(' ');\nconst m = range.match(/(\\d{1,2})[.\\/-](\\d{1,2})(?:[.\\/-](\\d{2,4}))?\\s*[-–]\\s*(\\d{1,2})[.\\/-](\\d{1,2})(?:[.\\/-](\\d{2,4}))?/);\nif (!m) {\n  return [{ json: { error: 'Datum konnte nicht gelesen werden. Beispiel: /freie_wohnung Halle 15.5.-20.5.', chatId: $input.first().json.message.chat.id } }];\n}\nconst now = new Date();\nconst yr = now.getFullYear();\nconst pad = (n) => String(n).padStart(2, '0');\nconst y1 = m[3] ? (m[3].length === 2 ? 2000 + parseInt(m[3], 10) : parseInt(m[3], 10)) : yr;\nconst y2 = m[6] ? (m[6].length === 2 ? 2000 + parseInt(m[6], 10) : parseInt(m[6], 10)) : y1;\nconst from = `${y1}-${pad(parseInt(m[2], 10))}-${pad(parseInt(m[1], 10))}`;\nconst to = `${y2}-${pad(parseInt(m[5], 10))}-${pad(parseInt(m[4], 10))}`;\nconst chatId = $input.first().json.message.chat.id;\nreturn [{ json: { chatId, city, from, to } }];"
+      },
+      "id": "node-parse",
+      "name": "Parse Args",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 220]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond-error",
+              "leftValue": "={{ $json.error || '' }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "node-check",
+      "name": "Check Parse OK",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [880, 220]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.lodgify.com/v2/availability",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "from", "value": "={{ $json.from }}" },
+            { "name": "to", "value": "={{ $json.to }}" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Accept", "value": "application/json" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-availability",
+      "name": "Lodgify – Availability",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 140],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME_LODGIFY_CRED_ID",
+          "name": "Lodgify API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.lodgify.com/v2/properties",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Accept", "value": "application/json" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-props",
+      "name": "Lodgify – Properties",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 320],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME_LODGIFY_CRED_ID",
+          "name": "Lodgify API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "id": "node-merge-data",
+      "name": "Merge Availability + Props",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1320, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "const args = $('Parse Args').first().json;\nconst availability = $input.first().json;\nconst propsResp = $input.last().json;\nconst props = propsResp.items || propsResp || [];\nconst availItems = availability.items || availability || [];\n\nconst availableIds = new Set(\n  availItems\n    .filter(a => (a.periods || []).every(p => p.available))\n    .map(a => a.property_id || a.user_id || a.id)\n);\n\nconst cityNeedle = (args.city || '').toLowerCase();\nconst matches = props.filter(p => {\n  const inCity = (p.address?.city || p.city || p.area || p.name || '').toLowerCase().includes(cityNeedle);\n  return inCity && availableIds.has(p.id);\n});\n\nconst MS = 24 * 60 * 60 * 1000;\nconst nights = Math.max(1, Math.round((new Date(args.to) - new Date(args.from)) / MS));\n\nconst formatted = matches.slice(0, 10).map(p => {\n  const price = p.price?.amount || p.starting_price?.amount || null;\n  return { id: p.id, name: p.name, city: p.address?.city || p.city || '', priceFrom: price };\n});\n\nreturn [{ json: { chatId: args.chatId, city: args.city, from: args.from, to: args.to, nights, count: matches.length, results: formatted } }];"
+      },
+      "id": "node-format",
+      "name": "Format Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1540, 220]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "=🏠 *Freie Wohnungen in {{ $json.city }}*\n*Zeitraum:* {{ $json.from }} – {{ $json.to }} ({{ $json.nights }} Nächte)\n*Treffer:* {{ $json.count }}\n\n{{ $json.results.length ? $json.results.map(r => '• ' + r.name + (r.priceFrom ? ' – ab ' + r.priceFrom + '€/Nacht' : '')).join('\\n') : '_Keine freien Apartments im Zeitraum gefunden._' }}",
+        "additionalFields": {
+          "parse_mode": "Markdown",
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "node-tg-reply",
+      "name": "Telegram → Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1760, 220],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME_TELEGRAM_CRED_ID",
+          "name": "Telegram Move-in2Stay Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "=⚠️ {{ $json.error }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "node-tg-error",
+      "name": "Telegram → Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1100, 460],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME_TELEGRAM_CRED_ID",
+          "name": "Telegram Move-in2Stay Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [[{ "node": "Filter Command", "type": "main", "index": 0 }]]
+    },
+    "Filter Command": {
+      "main": [
+        [{ "node": "Parse Args", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Parse Args": {
+      "main": [[{ "node": "Check Parse OK", "type": "main", "index": 0 }]]
+    },
+    "Check Parse OK": {
+      "main": [
+        [
+          { "node": "Lodgify – Availability", "type": "main", "index": 0 },
+          { "node": "Lodgify – Properties", "type": "main", "index": 0 }
+        ],
+        [{ "node": "Telegram → Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Lodgify – Availability": {
+      "main": [[{ "node": "Merge Availability + Props", "type": "main", "index": 0 }]]
+    },
+    "Lodgify – Properties": {
+      "main": [[{ "node": "Merge Availability + Props", "type": "main", "index": 1 }]]
+    },
+    "Merge Availability + Props": {
+      "main": [[{ "node": "Format Results", "type": "main", "index": 0 }]]
+    },
+    "Format Results": {
+      "main": [[{ "node": "Telegram → Reply", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": false
+  },
+  "tags": [
+    { "name": "movein2stay" },
+    { "name": "telegram" },
+    { "name": "lodgify" }
+  ]
+}

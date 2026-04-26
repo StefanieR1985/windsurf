@@ -1,0 +1,159 @@
+{
+  "name": "03 – Morgen-Briefing 07:00 (Lodgify → Telegram)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      },
+      "id": "node-cron",
+      "name": "Cron 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const today = new Date();\nconst yyyy = today.getFullYear();\nconst mm = String(today.getMonth() + 1).padStart(2, '0');\nconst dd = String(today.getDate()).padStart(2, '0');\nconst date = `${yyyy}-${mm}-${dd}`;\nreturn [{ json: { date } }];"
+      },
+      "id": "node-today",
+      "name": "Compute Today",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.lodgify.com/v2/reservations/bookings",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "stayFilter", "value": "Today" },
+            { "name": "size", "value": "100" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Accept", "value": "application/json" }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "node-lodgify-today",
+      "name": "Lodgify – Today's Bookings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME_LODGIFY_CRED_ID",
+          "name": "Lodgify API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const today = $('Compute Today').first().json.date;\nconst data = $input.first().json;\nconst items = data.items || data.results || data || [];\n\nconst checkIns = items.filter(b => (b.arrival || b.checkin || '').slice(0, 10) === today);\nconst checkOuts = items.filter(b => (b.departure || b.checkout || '').slice(0, 10) === today);\nconst stays = items.filter(b => {\n  const a = (b.arrival || b.checkin || '').slice(0, 10);\n  const d = (b.departure || b.checkout || '').slice(0, 10);\n  return a < today && d > today;\n});\n\nconst format = (b) => `• ${b.property_name || b.property?.name || 'Apartment'} – ${b.guest?.name || b.guest_name || 'Gast'}`;\n\nreturn [{\n  json: {\n    date: today,\n    counts: { checkIns: checkIns.length, checkOuts: checkOuts.length, stays: stays.length },\n    checkIns: checkIns.map(format),\n    checkOuts: checkOuts.map(format),\n    stays: stays.map(format)\n  }\n}];"
+      },
+      "id": "node-summary",
+      "name": "Summarize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "create",
+        "model": "claude-sonnet-4-6",
+        "messages": {
+          "values": [
+            {
+              "role": "user",
+              "content": "=Du bist Operations-Assistent für Move-in2Stay. Erstelle ein knappes Tagesbriefing auf Deutsch für Telegram (max 600 Zeichen, Markdown erlaubt).\n\nDatum: {{ $json.date }}\nCheck-ins heute: {{ $json.counts.checkIns }}\nCheck-outs heute: {{ $json.counts.checkOuts }}\nLaufende Aufenthalte: {{ $json.counts.stays }}\n\nCheck-ins:\n{{ $json.checkIns.join('\\n') || '— keine —' }}\n\nCheck-outs:\n{{ $json.checkOuts.join('\\n') || '— keine —' }}\n\nMarkiere kritische Punkte (z. B. mehrere Check-outs vor Check-ins → enge Reinigung). Schließe mit einer kurzen Empfehlung."
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 500,
+          "temperature": 0.3
+        }
+      },
+      "id": "node-claude",
+      "name": "Claude – Briefing",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [1100, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "REPLACE_ME_ANTHROPIC_CRED_ID",
+          "name": "Anthropic Claude"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $vars.TELEGRAM_CHAT_BRIEFING }}",
+        "text": "=☀️ *Tagesbriefing {{ $('Summarize').item.json.date }}*\n\n{{ $json.content?.[0]?.text || $json.text }}",
+        "additionalFields": {
+          "parse_mode": "Markdown",
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "node-tg",
+      "name": "Telegram → Briefing",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1340, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME_TELEGRAM_CRED_ID",
+          "name": "Telegram Move-in2Stay Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron 07:00": {
+      "main": [[{ "node": "Compute Today", "type": "main", "index": 0 }]]
+    },
+    "Compute Today": {
+      "main": [[{ "node": "Lodgify – Today's Bookings", "type": "main", "index": 0 }]]
+    },
+    "Lodgify – Today's Bookings": {
+      "main": [[{ "node": "Summarize", "type": "main", "index": 0 }]]
+    },
+    "Summarize": {
+      "main": [[{ "node": "Claude – Briefing", "type": "main", "index": 0 }]]
+    },
+    "Claude – Briefing": {
+      "main": [[{ "node": "Telegram → Briefing", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Berlin",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": false
+  },
+  "tags": [
+    { "name": "movein2stay" },
+    { "name": "lodgify" },
+    { "name": "telegram" }
+  ]
+}
