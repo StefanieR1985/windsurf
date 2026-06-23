@@ -1,0 +1,307 @@
+{
+  "name": "01 – E-Mail Classifier & Telegram Router",
+  "nodes": [
+    {
+      "parameters": {
+        "postProcessAction": "nothing",
+        "options": {}
+      },
+      "id": "node-imap-trigger",
+      "name": "Email Trigger (IMAP)",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [220, 300],
+      "credentials": {
+        "imap": {
+          "id": "REPLACE_ME_IMAP_CRED_ID",
+          "name": "Move-in2Stay IMAP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => {\n  const data = item.json;\n  const headers = data.headers || {};\n  const subject = (headers.subject || data.subject || '').toString();\n  const from = (headers.from || data.from || '').toString();\n  const to = (headers.to || data.to || '').toString();\n  const text = (data.text || data.textPlain || data.html || '').toString();\n\n  return {\n    json: {\n      messageId: headers['message-id'] || data.messageId || '',\n      receivedAt: data.date || new Date().toISOString(),\n      subject: subject.trim(),\n      from: from.trim(),\n      to: to.trim(),\n      bodyPreview: text.replace(/\\s+/g, ' ').slice(0, 4000)\n    }\n  };\n});"
+      },
+      "id": "node-normalize",
+      "name": "Normalize Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Deterministic pre-classification: spart Claude-Tokens, wenn der Fall eindeutig ist.\nconst item = $input.first();\nconst j = item.json;\nconst subject = (j.subject || '').toLowerCase();\nconst body = (j.bodyPreview || '').toLowerCase();\nconst from = (j.from || '').toLowerCase();\nconst text = subject + ' ' + body;\n\nconst bookingDomains = [\n  'booking.com', 'lodgify.com', 'airbnb.com', 'expedia.com',\n  'agoda.com', 'vrbo.com', 'hrs.de', 'fewo-direkt.de', 'tripadvisor.com'\n];\nconst isBookingSender = bookingDomains.some(d => from.includes(d));\n\n// Banking/Rechnungen sehen oberflächlich nach Buchung aus, sind es aber nicht.\nconst bankingKeywords = ['abgebucht', 'lastschrift', 'sepa-mandat', 'rechnung im anhang', 'mahnung', 'zahlungserinnerung'];\nconst isBanking = bankingKeywords.some(k => text.includes(k));\n\n// Buchungs-Keywords (Treffer im Body)\nconst bookingBodyKeywords = [\n  'gebucht', 'gebuchte', 'gebuchten', 'gebuchter', 'gebuchtes',\n  'ausgebucht', 'überbucht', 'umgebucht', 'vorgebucht', 'doppelgebucht',\n  'buchung', 'buchungen', 'buchungsbestätigung', 'buchungsnummer', 'buchungscode',\n  'reservierung', 'reservierungs', 'reserviert',\n  'booking confirmation', 'reservation confirmation', 'new booking', 'new reservation',\n  'check-in', 'anreise', 'arrival'\n];\n// Buchungs-Indizien im Subject (mind. eines muss zutreffen)\nconst bookingSubjectHints = [\n  'buchung', 'booking', 'reservation', 'reservierung',\n  'bestätig', 'confirm', 'gebucht', 'check-in', 'anreise'\n];\n\nconst hasBodyKeyword = bookingBodyKeywords.some(k => text.includes(k));\nconst hasSubjectHint = bookingSubjectHints.some(k => subject.includes(k));\n\n// Bewertungs-Keywords\nconst reviewKeywords = ['bewertung abgeben', 'bewerten sie', 'bewertung hinterlassen', 'bewertung erhalten', 'review request', 'leave a review', 'rate your stay', 'sterne'];\nconst hasReviewKeyword = reviewKeywords.some(k => text.includes(k));\n\n// Anfrage-Keywords (Form-Submissions / Anfragen über Website)\nconst inquiryKeywords = ['anfrage', 'verfügbarkeit', 'verfügbar', 'preis', 'angebot', 'frage zu', 'kann ich', 'wäre möglich', 'inquiry', 'availability'];\nconst hasInquiryKeyword = inquiryKeywords.some(k => text.includes(k));\nconst inquirySubjectHints = ['anfrage', 'verfügbarkeit', 'inquiry', 'request'];\nconst hasInquirySubject = inquirySubjectHints.some(k => subject.includes(k));\n\nlet preClassified = false;\nlet category = null;\nlet reason = '';\n\nif (!isBanking && isBookingSender) {\n  preClassified = true;\n  category = 'BUCHUNG';\n  reason = 'sender domain match (' + from.replace(/.*@/, '') + ')';\n} else if (!isBanking && hasBodyKeyword && hasSubjectHint) {\n  preClassified = true;\n  category = 'BUCHUNG';\n  reason = 'booking keywords in subject + body';\n} else if (hasReviewKeyword) {\n  preClassified = true;\n  category = 'BEWERTUNG';\n  reason = 'review keyword match';\n} else if (hasInquirySubject && hasInquiryKeyword) {\n  preClassified = true;\n  category = 'ANFRAGE';\n  reason = 'inquiry keywords in subject + body';\n}\n\nreturn [{\n  json: {\n    ...j,\n    preClassified,\n    preCategory: category,\n    preReason: reason\n  }\n}];"
+      },
+      "id": "node-pre-classify",
+      "name": "Pre-Classify (Keywords)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond-pre",
+              "leftValue": "={{ $json.preClassified }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "node-if-pre",
+      "name": "Pre-Classified?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => {\n  const j = item.json;\n  return {\n    json: {\n      ...j,\n      classification: {\n        category: j.preCategory,\n        confidence: 1,\n        summary: 'Automatisch klassifiziert (' + j.preReason + ').',\n        action_required: j.preCategory !== 'SONSTIGES',\n        suggested_reply: null\n      }\n    }\n  };\n});"
+      },
+      "id": "node-build-deterministic",
+      "name": "Build Deterministic Classification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 180]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "create",
+        "model": "claude-sonnet-4-6",
+        "messages": {
+          "values": [
+            {
+              "role": "user",
+              "content": "=Du bist ein Klassifikator für eingehende E-Mails einer Ferienwohnungs-Vermietung (Move-in2Stay).\n\nKlassifiziere die folgende E-Mail in GENAU eine Kategorie:\n- BUCHUNG: Konkrete Buchungsbestätigung oder Reservierung (z. B. von Booking.com, Lodgify, Airbnb).\n- ANFRAGE: Anfrage nach Verfügbarkeit, Preisen, Langzeit, Gruppen, etc.\n- BEWERTUNG: Gast-Bewertung oder Aufforderung zur Bewertung.\n- SONSTIGES: Spam, Newsletter, Rechnungen, alles andere.\n\nAntworte ausschließlich als JSON-Objekt mit folgendem Schema:\n{\n  \"category\": \"BUCHUNG\" | \"ANFRAGE\" | \"BEWERTUNG\" | \"SONSTIGES\",\n  \"confidence\": number (0-1),\n  \"summary\": string (max 280 Zeichen, Deutsch, sachlich),\n  \"action_required\": boolean,\n  \"suggested_reply\": string | null\n}\n\nE-MAIL:\nVon: {{ $json.from }}\nAn: {{ $json.to }}\nBetreff: {{ $json.subject }}\nEmpfangen: {{ $json.receivedAt }}\n\n{{ $json.bodyPreview }}"
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 600,
+          "temperature": 0.1
+        }
+      },
+      "id": "node-claude-classify",
+      "name": "Claude – Classify",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [1100, 420],
+      "credentials": {
+        "anthropicApi": {
+          "id": "REPLACE_ME_ANTHROPIC_CRED_ID",
+          "name": "Anthropic Claude"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => {\n  const original = item.json.original || item.json;\n  let parsed = { category: 'SONSTIGES', confidence: 0, summary: '', action_required: false, suggested_reply: null };\n  const raw = item.json.content?.[0]?.text || item.json.text || item.json.message || '';\n  try {\n    const match = raw.match(/\\{[\\s\\S]*\\}/);\n    if (match) parsed = { ...parsed, ...JSON.parse(match[0]) };\n  } catch (e) {\n    parsed.summary = 'Klassifikation fehlgeschlagen: ' + (e.message || 'unknown');\n  }\n  return {\n    json: {\n      ...original,\n      classification: parsed\n    }\n  };\n});"
+      },
+      "id": "node-parse-classification",
+      "name": "Parse Classification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 420]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": false, "typeValidation": "strict" },
+                "conditions": [
+                  {
+                    "id": "cond-buchung",
+                    "leftValue": "={{ $json.classification.category }}",
+                    "rightValue": "BUCHUNG",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "BUCHUNG"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": false, "typeValidation": "strict" },
+                "conditions": [
+                  {
+                    "id": "cond-anfrage",
+                    "leftValue": "={{ $json.classification.category }}",
+                    "rightValue": "ANFRAGE",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ANFRAGE"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": false, "typeValidation": "strict" },
+                "conditions": [
+                  {
+                    "id": "cond-bewertung",
+                    "leftValue": "={{ $json.classification.category }}",
+                    "rightValue": "BEWERTUNG",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "BEWERTUNG"
+            }
+          ]
+        },
+        "fallbackOutput": "extra",
+        "options": {
+          "renameFallbackOutput": "SONSTIGES"
+        }
+      },
+      "id": "node-switch",
+      "name": "Route by Category",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $vars.TELEGRAM_CHAT_BUCHUNGEN }}",
+        "text": "=📅 *Neue Buchung*\n\n*Von:* {{ $json.from }}\n*Betreff:* {{ $json.subject }}\n\n{{ $json.classification.summary }}\n\n_Confidence: {{ $json.classification.confidence }}_",
+        "additionalFields": {
+          "parse_mode": "Markdown",
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "node-tg-buchung",
+      "name": "Telegram → Buchungen",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1820, 100],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME_TELEGRAM_CRED_ID",
+          "name": "Telegram Move-in2Stay Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $vars.TELEGRAM_CHAT_ANFRAGEN }}",
+        "text": "=✉️ *Neue Anfrage*\n\n*Von:* {{ $json.from }}\n*Betreff:* {{ $json.subject }}\n\n{{ $json.classification.summary }}\n\n{{ $json.classification.suggested_reply ? '*Vorschlag:*\\n' + $json.classification.suggested_reply : '_Kein Antwort-Vorschlag._' }}",
+        "additionalFields": {
+          "parse_mode": "Markdown",
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "node-tg-anfrage",
+      "name": "Telegram → Anfragen",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1820, 280],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME_TELEGRAM_CRED_ID",
+          "name": "Telegram Move-in2Stay Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $vars.TELEGRAM_CHAT_BEWERTUNGEN }}",
+        "text": "=⭐️ *Neue Bewertung / Bewertungs-Anfrage*\n\n*Von:* {{ $json.from }}\n*Betreff:* {{ $json.subject }}\n\n{{ $json.classification.summary }}",
+        "additionalFields": {
+          "parse_mode": "Markdown",
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "node-tg-bewertung",
+      "name": "Telegram → Bewertungen",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1820, 460],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME_TELEGRAM_CRED_ID",
+          "name": "Telegram Move-in2Stay Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $vars.TELEGRAM_CHAT_SONSTIGES }}",
+        "text": "=📥 *Sonstiges*\n\n*Von:* {{ $json.from }}\n*Betreff:* {{ $json.subject }}\n\n{{ $json.classification.summary }}",
+        "additionalFields": {
+          "parse_mode": "Markdown",
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "node-tg-sonstiges",
+      "name": "Telegram → Sonstiges",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1820, 640],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME_TELEGRAM_CRED_ID",
+          "name": "Telegram Move-in2Stay Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Email Trigger (IMAP)": {
+      "main": [[{ "node": "Normalize Email", "type": "main", "index": 0 }]]
+    },
+    "Normalize Email": {
+      "main": [[{ "node": "Pre-Classify (Keywords)", "type": "main", "index": 0 }]]
+    },
+    "Pre-Classify (Keywords)": {
+      "main": [[{ "node": "Pre-Classified?", "type": "main", "index": 0 }]]
+    },
+    "Pre-Classified?": {
+      "main": [
+        [{ "node": "Build Deterministic Classification", "type": "main", "index": 0 }],
+        [{ "node": "Claude – Classify", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Deterministic Classification": {
+      "main": [[{ "node": "Route by Category", "type": "main", "index": 0 }]]
+    },
+    "Claude – Classify": {
+      "main": [[{ "node": "Parse Classification", "type": "main", "index": 0 }]]
+    },
+    "Parse Classification": {
+      "main": [[{ "node": "Route by Category", "type": "main", "index": 0 }]]
+    },
+    "Route by Category": {
+      "main": [
+        [{ "node": "Telegram → Buchungen", "type": "main", "index": 0 }],
+        [{ "node": "Telegram → Anfragen", "type": "main", "index": 0 }],
+        [{ "node": "Telegram → Bewertungen", "type": "main", "index": 0 }],
+        [{ "node": "Telegram → Sonstiges", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": false
+  },
+  "tags": [
+    { "name": "movein2stay" },
+    { "name": "email" },
+    { "name": "telegram" }
+  ]
+}

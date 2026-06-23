@@ -1,0 +1,202 @@
+{
+  "name": "04 – Telegram /auslastung – Belegungsabfrage (Lodgify)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"],
+        "additionalFields": {}
+      },
+      "id": "node-tg-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME_TELEGRAM_CRED_ID",
+          "name": "Telegram Move-in2Stay Bot"
+        }
+      },
+      "webhookId": "REPLACE_ME_TG_WEBHOOK_AUSLASTUNG"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond-cmd",
+              "leftValue": "={{ $json.message?.text || '' }}",
+              "rightValue": "/auslastung",
+              "operator": { "type": "string", "operation": "startsWith" }
+            },
+            {
+              "id": "cond-allowed-chat",
+              "leftValue": "={{ String($json.message?.chat?.id) }}",
+              "rightValue": "={{ $vars.TELEGRAM_CHAT_OPS }}",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "node-filter",
+      "name": "Filter /auslastung",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = ($input.first().json.message?.text || '').trim();\nconst parts = text.split(/\\s+/).slice(1);\nconst monthArg = (parts[0] || '').toLowerCase();\nconst yearArg = parts[1] ? parseInt(parts[1], 10) : new Date().getFullYear();\nconst months = { januar:1,februar:2,maerz:3,'märz':3,april:4,mai:5,juni:6,juli:7,august:8,september:9,oktober:10,november:11,dezember:12 };\nlet month = months[monthArg];\nif (!month && /^\\d{1,2}$/.test(monthArg)) month = parseInt(monthArg, 10);\nif (!month || month < 1 || month > 12) {\n  return [{ json: { error: 'Bitte Monat angeben, z. B. /auslastung Mai oder /auslastung 5 2025' } }];\n}\nconst pad = (n) => String(n).padStart(2, '0');\nconst from = `${yearArg}-${pad(month)}-01`;\nconst lastDay = new Date(yearArg, month, 0).getDate();\nconst to = `${yearArg}-${pad(month)}-${pad(lastDay)}`;\nconst chatId = $input.first().json.message.chat.id;\nreturn [{ json: { chatId, month, year: yearArg, from, to, days: lastDay } }];"
+      },
+      "id": "node-parse",
+      "name": "Parse Args",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 220]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.lodgify.com/v2/properties",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Accept", "value": "application/json" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-properties",
+      "name": "Lodgify – Properties",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 220],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME_LODGIFY_CRED_ID",
+          "name": "Lodgify API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.lodgify.com/v2/reservations/bookings",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "stayFilter", "value": "Custom" },
+            { "name": "stayFilterDate", "value": "={{ $('Parse Args').first().json.from }}" },
+            { "name": "stayFilterEndDate", "value": "={{ $('Parse Args').first().json.to }}" },
+            { "name": "size", "value": "200" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Accept", "value": "application/json" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-bookings",
+      "name": "Lodgify – Bookings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 220],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME_LODGIFY_CRED_ID",
+          "name": "Lodgify API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const args = $('Parse Args').first().json;\nconst props = ($('Lodgify – Properties').first().json.items || $('Lodgify – Properties').first().json || []);\nconst bookings = ($input.first().json.items || $input.first().json || []);\n\nconst totalRoomNights = props.length * args.days;\nconst rangeStart = new Date(args.from + 'T00:00:00Z');\nconst rangeEnd = new Date(args.to + 'T23:59:59Z');\nconst MS = 24 * 60 * 60 * 1000;\n\nconst nightsByProperty = new Map();\nlet bookedNights = 0;\nfor (const b of bookings) {\n  const a = new Date((b.arrival || b.checkin || '').slice(0, 10));\n  const d = new Date((b.departure || b.checkout || '').slice(0, 10));\n  if (isNaN(a) || isNaN(d)) continue;\n  const start = a > rangeStart ? a : rangeStart;\n  const end = d < rangeEnd ? d : rangeEnd;\n  const nights = Math.max(0, Math.round((end - start) / MS));\n  bookedNights += nights;\n  const pid = b.property_id || b.property?.id || 'unknown';\n  nightsByProperty.set(pid, (nightsByProperty.get(pid) || 0) + nights);\n}\n\nconst occupancy = totalRoomNights ? bookedNights / totalRoomNights : 0;\nconst byProperty = props.map(p => {\n  const nights = nightsByProperty.get(p.id) || 0;\n  return { id: p.id, name: p.name, occupancy: args.days ? nights / args.days : 0, nights };\n}).sort((a, b) => b.occupancy - a.occupancy);\n\nreturn [{\n  json: {\n    chatId: args.chatId,\n    month: args.month,\n    year: args.year,\n    days: args.days,\n    properties: props.length,\n    bookedNights,\n    totalRoomNights,\n    occupancyPct: Math.round(occupancy * 100),\n    top: byProperty.slice(0, 3),\n    bottom: byProperty.slice(-3).reverse()\n  }\n}];"
+      },
+      "id": "node-calc",
+      "name": "Calculate Occupancy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 220]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "=📊 *Auslastung {{ $json.month }}/{{ $json.year }}*\n\n*Belegt:* {{ $json.occupancyPct }}% ({{ $json.bookedNights }}/{{ $json.totalRoomNights }} Nächte)\n*Apartments:* {{ $json.properties }}\n\n*Top 3*\n{{ $json.top.map(t => '• ' + t.name + ' – ' + Math.round(t.occupancy*100) + '%').join('\\n') }}\n\n*Schwächste 3*\n{{ $json.bottom.map(t => '• ' + t.name + ' – ' + Math.round(t.occupancy*100) + '%').join('\\n') }}",
+        "additionalFields": {
+          "parse_mode": "Markdown",
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "node-tg-reply",
+      "name": "Telegram → Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1540, 220],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME_TELEGRAM_CRED_ID",
+          "name": "Telegram Move-in2Stay Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+        "text": "=⚠️ Befehl ignoriert (falscher Chat oder ungültiges Kommando).",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "node-tg-deny",
+      "name": "Telegram → Reject",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [660, 460],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME_TELEGRAM_CRED_ID",
+          "name": "Telegram Move-in2Stay Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [[{ "node": "Filter /auslastung", "type": "main", "index": 0 }]]
+    },
+    "Filter /auslastung": {
+      "main": [
+        [{ "node": "Parse Args", "type": "main", "index": 0 }],
+        [{ "node": "Telegram → Reject", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Args": {
+      "main": [[{ "node": "Lodgify – Properties", "type": "main", "index": 0 }]]
+    },
+    "Lodgify – Properties": {
+      "main": [[{ "node": "Lodgify – Bookings", "type": "main", "index": 0 }]]
+    },
+    "Lodgify – Bookings": {
+      "main": [[{ "node": "Calculate Occupancy", "type": "main", "index": 0 }]]
+    },
+    "Calculate Occupancy": {
+      "main": [[{ "node": "Telegram → Reply", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": false
+  },
+  "tags": [
+    { "name": "movein2stay" },
+    { "name": "telegram" },
+    { "name": "lodgify" }
+  ]
+}

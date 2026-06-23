@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
-import { Mail, Phone, MapPin, Clock, Send, Instagram, Linkedin, Youtube, Facebook } from "lucide-react";
+import { Mail, Phone, MapPin, Clock, Instagram, Linkedin, Youtube } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import ContactForm from "@/components/ContactForm";
 
 export const metadata: Metadata = {
   title: "Kontakt | Move-in2Stay",
@@ -161,104 +162,7 @@ export default function ContactPage() {
                 <h2 className="text-2xl font-bold text-navy mb-6">
                   Nachricht senden
                 </h2>
-                <form className="space-y-4">
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Vorname *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-                        placeholder="Max"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Nachname *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-                        placeholder="Mustermann"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      E-Mail *
-                    </label>
-                    <input
-                      type="email"
-                      required
-                      className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-                      placeholder="max@beispiel.de"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Telefon
-                    </label>
-                    <input
-                      type="tel"
-                      className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-                      placeholder="+49 123 456789"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Betreff *
-                    </label>
-                    <select
-                      required
-                      className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all bg-white"
-                    >
-                      <option value="">Bitte wählen...</option>
-                      <option value="anfrage">Allgemeine Anfrage</option>
-                      <option value="buchung">Buchungsanfrage</option>
-                      <option value="verfuegbarkeit">Verfügbarkeit prüfen</option>
-                      <option value="langfristig">Langfristige Vermietung</option>
-                      <option value="sonstiges">Sonstiges</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Nachricht *
-                    </label>
-                    <textarea
-                      required
-                      rows={4}
-                      className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all resize-none"
-                      placeholder="Ihre Nachricht an uns..."
-                    />
-                  </div>
-
-                  <div className="flex items-start gap-2">
-                    <input
-                      type="checkbox"
-                      id="privacy"
-                      required
-                      className="mt-1"
-                    />
-                    <label htmlFor="privacy" className="text-sm text-gray-600">
-                      Ich habe die Datenschutzerklärung gelesen und stimme der Verarbeitung meiner Daten zu. *
-                    </label>
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="w-full flex items-center justify-center gap-2 bg-primary text-white px-8 py-4 rounded-lg font-bold hover:bg-primary-dark transition-colors"
-                  >
-                    <Send size={20} />
-                    Nachricht senden
-                  </button>
-                </form>
+                <ContactForm />
               </div>
             </div>
           </div>
