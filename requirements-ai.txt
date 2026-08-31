@@ -1,0 +1,21 @@
+# KI-Bibliotheken fuer Skripte und Automatisierung (Python 3.10+).
+# Installation ueber ./scripts/setup-ki-tools.sh --python
+# oder manuell:  python3 -m venv .venv && .venv/bin/pip install -r requirements-ai.txt
+
+# --- Offizielle SDKs der grossen Anbieter ---
+anthropic>=1.2,<2          # Claude
+openai>=3.6,<4             # GPT und Whisper-Transkription
+google-genai>=2.20,<3      # Gemini
+
+# Kimi (Moonshot), Perplexity und Ollama sprechen die OpenAI-API. Sie brauchen
+# kein eigenes Paket, nur eine andere base_url – Beispiele in docs/KI-SOFTWARE.md.
+# Bewusst nicht dabei: litellm. Es pinnt openai<3 und blockiert damit die
+# aktuelle OpenAI-SDK. Bei Bedarf in eine eigene venv installieren.
+
+# --- Spracherkennung lokal (Diktate, Telefonnotizen, Besichtigungs-Memos) ---
+# Braucht ffmpeg im System; das Setup-Skript installiert es mit.
+faster-whisper>=1.2,<2
+
+# --- Kleinkram ---
+python-dotenv>=1.0         # .env.local einlesen
+httpx>=0.27                # HTTP-Client fuer eigene API-Aufrufe

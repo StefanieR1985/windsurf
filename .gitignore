@@ -5,10 +5,15 @@ node_modules/
 
 # Testing
 coverage/
+test-results/
+playwright-report/
+blob-report/
+.playwright/
 
 # Next.js
 .next/
 out/
+*.tsbuildinfo
 
 # Production
 build/
