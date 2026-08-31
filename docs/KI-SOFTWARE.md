@@ -5,6 +5,11 @@ werden und wofuer sie gedacht sind.
 
 ## Schnellstart
 
+Zwei Skripte, je nach Rechner. Beide sind idempotent – ein zweiter Durchlauf
+ueberspringt alles, was schon da ist.
+
+### macOS und Linux
+
 ```bash
 # CLI-Agenten, Python-Umgebung, Ollama und Playwright
 ./scripts/setup-ki-tools.sh
@@ -16,9 +21,34 @@ werden und wofuer sie gedacht sind.
 ./scripts/setup-ki-tools.sh --all --dry-run
 ```
 
-Das Skript laeuft auf macOS und Linux und ist idempotent – ein zweiter Durchlauf
-ueberspringt alles, was schon da ist. Unter Windows: WSL2 nutzen oder die
-Downloads aus der Tabelle unten von Hand installieren.
+### Windows
+
+```powershell
+# Werkzeuge installieren und Arbeitsprojekt anlegen
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-ki-laptop.ps1
+
+# zusaetzlich die Desktop-Apps
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-ki-laptop.ps1 -Desktop
+
+# vorher anschauen, was passieren wuerde
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-ki-laptop.ps1 -DryRun
+```
+
+Das Windows-Skript installiert ueber `winget` (Git, Node.js, Python, uv,
+Ollama), holt die CLI-Agenten und legt anschliessend unter
+`%USERPROFILE%\KI-Arbeitsplatz` ein fertiges Projekt an:
+
+    .venv\                     Python-Umgebung mit den KI-Bibliotheken
+    .env                       Vorlage fuer die API-Keys
+    beispiele\frage-claude.py  eine Frage an Claude schicken
+    beispiele\transkribiere.py Sprachaufnahme lokal in Text verwandeln
+    notizen\                   Ablage fuer Audiodateien und Texte
+    requirements.txt           Liste der Python-Pakete
+
+Der Ordner laesst sich mit `-ProjectPath` frei waehlen. Vorhandene Dateien
+werden nie ueberschrieben. Paket-IDs von `winget` aendern sich gelegentlich –
+findet das Skript eine nicht, nennt es den Download-Link statt still zu
+scheitern.
 
 ## Was installiert wird
 
