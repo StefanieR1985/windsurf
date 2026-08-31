@@ -6,15 +6,28 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:e2e": "playwright test",
+    "setup:ki": "./scripts/setup-ki-tools.sh"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.46",
+    "@ai-sdk/google": "^4.0.58",
+    "@ai-sdk/openai": "^4.0.52",
+    "@ai-sdk/openai-compatible": "^3.0.41",
+    "@ai-sdk/perplexity": "^4.0.36",
+    "@anthropic-ai/sdk": "^0.122.0",
+    "@google/genai": "^2.19.0",
+    "ai": "^7.0.85",
+    "lucide-react": "^0.460.0",
     "next": "15.1.0",
+    "openai": "^7.8.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "lucide-react": "^0.460.0"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
