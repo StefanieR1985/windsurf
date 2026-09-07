@@ -1,0 +1,6 @@
+ticker,name,type,shares,avg_cost,currency,target_weight
+IWDA.AS,iShares Core MSCI World,ETF,40,78.50,EUR,50
+EIMI.L,iShares Core MSCI EM IMI,ETF,120,30.20,USD,10
+SAP.DE,SAP SE,Aktie,10,150.00,EUR,10
+AAPL,Apple Inc.,Aktie,15,170.00,USD,15
+ALV.DE,Allianz SE,Aktie,8,240.00,EUR,15
