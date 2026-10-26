@@ -37,3 +37,7 @@ yarn-error.log*
 # Windows
 Thumbs.db
 desktop.ini
+
+# Vincent-Hoerbuch: Arbeitsstaende und Ergebnisse bleiben lokal
+tools/vincent-hoerbuch/__pycache__/
+Vincent_Hoerbuch/
