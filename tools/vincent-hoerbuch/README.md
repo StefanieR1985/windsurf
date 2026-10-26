@@ -91,7 +91,51 @@ python3 test_textclean.py
 
 ## Ablauf
 
-### Schritt 0 – Kindle vorbereiten
+### Schritt 0 – Erst prüfen, welche Datei überhaupt vorliegt
+
+**Das entscheidet den ganzen weiteren Weg.** Amazon liefert keine EPUB aus. Im
+Kindle-Ordner liegt `.azw`, `.azw3` oder `.kfx`, und diese Dateien sind in der
+Regel verschlüsselt und an die Gerätekennung gebunden.
+
+```bash
+python3 00_datei_pruefen.py "C:/Users/<Name>/Documents/My Kindle Content"
+```
+
+Der Kindle-Ordner liegt meist hier:
+
+- Windows: `C:\Users\<Name>\Documents\My Kindle Content`
+- macOS: `~/Library/Application Support/Kindle/My Kindle Content`
+
+Das Skript liest nur Kopfdaten. Es entschlüsselt nichts und zeigt keinen Weg,
+das zu tun. Zwei Ergebnisse sind möglich:
+
+- **offen** – der Text lässt sich direkt entnehmen. Weiter mit Schritt 2b.
+  Keine Bildschirmaufnahme, keine Texterkennung, also auch keine Lesefehler.
+- **verschlüsselt** – die Datei ist für *jedes* Programm unlesbar. Das ist
+  keine Einstellung, sondern Verschlüsselung. Dann bleibt der Weg über die
+  Bildschirmaufnahme ab Schritt 1.
+
+Warum kein OCR-Dienst hier hilft: Texterkennung liest **Bilder**. Eine
+verschlüsselte Datei enthält Geheimtext, kein Bild und keinen Text. Daran
+ändert sich nichts, wenn man sie irgendwohin hochlädt.
+
+### Schritt 2b – Text direkt entnehmen (nur bei „offen“)
+
+```bash
+python3 02b_text_entnehmen.py buch.epub
+```
+
+Liest EPUB nativ (in der Reihenfolge der Spine, nicht der Dateinamen) und PDF
+über `pdftotext`. Bei anderen offenen Formaten wandelt **Calibre** zuverlässig
+um – das normale Programm, ohne Zusatzmodule:
+
+```bash
+ebook-convert buch.azw3 buch.epub
+```
+
+Verschlüsselte Dateien werden abgewiesen. Danach weiter mit Schritt 3.
+
+### Schritt 0b – Kindle vorbereiten
 
 Vor dem Start der Aufnahme:
 
@@ -142,6 +186,32 @@ Zeilenende getrennte Wörter wieder zusammen.
 Diese Datei bitte **überfliegen**. Erkennungsfehler hört man später deutlich.
 Hilft die Erkennung nicht: `--skalieren 2.0` oder `--psm 4`. Mit `--rohtext`
 wird der unbearbeitete Text je Seite zusätzlich abgelegt.
+
+#### Zweiter Erkennungsmotor: PaddleOCR
+
+```bash
+pip install paddlepaddle paddleocr
+python3 02_ocr.py --motor paddle
+```
+
+PaddleOCR kommt aus demselben Haus wie die Baidu-OCR, läuft aber **auf dem
+eigenen Rechner**. Es ist bei Buchschrift oft genauer als Tesseract, dafür ein
+großer Download (etwa 500 MB mit den Modellen). Tesseract bleibt die
+Voreinstellung; wer PaddleOCR nutzt, muss Tesseract nicht installieren.
+
+#### Warum nicht die Baidu-Cloud-OCR
+
+Bewusst nicht eingebaut. Dafür müssten die Seitenbilder eines gekauften Buches
+auf fremde Server geladen werden – bei einer Hörfassung für ein Kind, die
+ausdrücklich privat bleiben soll, ist das der falsche Weg: Hochgeladene Inhalte
+können dort zwischengespeichert bleiben, auch nach einem Löschen. Dazu kommt,
+dass die Cloud-Dienste auf Chinesisch und Englisch ausgelegt sind, nicht auf
+Niederländisch.
+
+Der Punkt, der häufig untergeht: Ein Cloud-OCR löst das eigentliche Problem
+ohnehin nicht. Ist die Datei verschlüsselt, kann sie niemand lesen. Ist sie
+offen, braucht es überhaupt kein OCR – dann greift Schritt 2b, und der ist
+fehlerfrei.
 
 ### Schritt 3 – Kapitel
 
@@ -234,6 +304,7 @@ Vincent_Hoerbuch/
 
 | Problem | Ursache und Abhilfe |
 | --- | --- |
+| Amazon-Datei lässt sich nicht öffnen | `00_datei_pruefen.py` sagt, ob sie verschlüsselt ist. Wenn ja: kein Werkzeug kann sie lesen, der Weg führt über die Bildschirmaufnahme. |
 | Aufnahmen sind schwarz oder leer | Bereich falsch (`--kalibrieren`), Fenster nicht im Vordergrund – oder die App blockiert Aufnahmen. Im letzten Fall ist Schluss, siehe oben. |
 | Immer dieselbe Seite | Die Blättertaste passt nicht: `--taste pagedown`. |
 | Hört nach wenigen Seiten auf | Zwei Aufnahmen galten als gleich. `--schwelle 1.0` macht den Vergleich strenger, `--pause 2.5` gibt der App mehr Zeit. |

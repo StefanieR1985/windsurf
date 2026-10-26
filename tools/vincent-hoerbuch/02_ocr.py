@@ -17,17 +17,29 @@ import shutil
 import sys
 from pathlib import Path
 
+import ocr_motoren
 import textclean
 
 try:
-    import pytesseract
     from PIL import Image, ImageOps
 except ImportError as exc:  # pragma: no cover
     sys.exit(f"Fehlendes Paket: {exc.name}\nBitte installieren:  pip install -r requirements.txt")
 
+# pytesseract wird nur fuer den Motor 'tesseract' gebraucht. Wer PaddleOCR
+# nutzt, soll Tesseract nicht installieren muessen - deshalb hier kein Abbruch.
+try:
+    import pytesseract
+except ImportError:  # pragma: no cover
+    pytesseract = None
+
 
 def tesseract_pruefen(sprache: str) -> None:
     """Bricht mit einer verstaendlichen Meldung ab, wenn Tesseract fehlt."""
+    if pytesseract is None:
+        sys.exit(
+            "Das Paket pytesseract fehlt:  pip install pytesseract\n"
+            "Oder den anderen Motor nutzen:  --motor paddle"
+        )
     if not shutil.which("tesseract") and not getattr(pytesseract.pytesseract, "tesseract_cmd", None):
         sys.exit(
             "Das Programm 'tesseract' wurde nicht gefunden.\n"
@@ -67,10 +79,17 @@ def main() -> int:
     p.add_argument("--psm", default="6", help="Tesseract-Layoutmodus, 6 = ein Textblock (Standard).")
     p.add_argument("--skalieren", type=float, default=1.5, help="Bilder vor der Erkennung vergroessern (Standard 1.5).")
     p.add_argument("--rohtext", action="store_true", help="Zusaetzlich den unbereinigten Text je Seite ablegen.")
+    p.add_argument(
+        "--motor",
+        choices=["tesseract", "paddle"],
+        default="tesseract",
+        help="Erkennungsmotor. Beide laufen lokal; paddle ist oft genauer, aber ein grosser Download.",
+    )
     p.add_argument("--pruefen", action="store_true", help="Nur Voraussetzungen und Bildanzahl pruefen.")
     args = p.parse_args()
 
-    tesseract_pruefen(args.sprache)
+    if args.motor == "tesseract":
+        tesseract_pruefen(args.sprache)
 
     ordner = Path(args.bilder)
     bilder = sorted(ordner.glob("seite_*.png"))
@@ -78,20 +97,31 @@ def main() -> int:
         sys.exit(f"Keine Aufnahmen in {ordner.resolve()} gefunden. Bitte zuerst 01_aufnahme.py laufen lassen.")
 
     if args.pruefen:
-        print(f"Tesseract gefunden, Sprache '{args.sprache}' verfuegbar.")
+        if args.motor == "tesseract":
+            print(f"Tesseract gefunden, Sprache '{args.sprache}' verfuegbar.")
+        else:
+            ocr_motoren.paddle_motor(args.sprache)
+            print(f"PaddleOCR geladen, Sprache '{args.sprache}' verfuegbar.")
         print(f"{len(bilder)} Aufnahmen in {ordner.resolve()}")
         return 0
 
-    print(f"{len(bilder)} Aufnahmen, Sprache '{args.sprache}'. Das dauert etwa 1-2 Sekunden je Seite.\n")
+    print(f"{len(bilder)} Aufnahmen, Motor '{args.motor}', Sprache '{args.sprache}'.")
+    print("Das dauert etwa 1-2 Sekunden je Seite.\n")
+
+    paddle_lesen = ocr_motoren.paddle_motor(args.sprache) if args.motor == "paddle" else None
     konfiguration = f"--psm {args.psm}"
     seiten: list[str] = []
     leer = 0
 
     for i, datei in enumerate(bilder, start=1):
-        with Image.open(datei) as bild:
-            text = pytesseract.image_to_string(
-                vorbereiten(bild, args.skalieren), lang=args.sprache, config=konfiguration
-            )
+        if paddle_lesen is not None:
+            # PaddleOCR bringt eigene Vorverarbeitung mit und liest die Datei selbst.
+            text = paddle_lesen(str(datei))
+        else:
+            with Image.open(datei) as bild:
+                text = pytesseract.image_to_string(
+                    vorbereiten(bild, args.skalieren), lang=args.sprache, config=konfiguration
+                )
         seiten.append(text)
         if not text.strip():
             leer += 1
