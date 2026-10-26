@@ -1,0 +1,11 @@
+{
+  "_hinweis": "Namen und feste Begriffe, die in der deutschen Fassung einheitlich bleiben sollen. Links der niederlaendische Ausdruck, rechts die deutsche Entsprechung. Wird dem Uebersetzungs-Prompt mitgegeben UND danach noch einmal als Konsistenzpruefung angewendet.",
+  "begriffe": {
+    "De Jas": "Die Jacke",
+    "de jas": "die Jacke",
+    "Vincent": "Vincent",
+    "Dilan": "Dilan",
+    "Jacky": "Jacky",
+    "Hoofdstuk": "Kapitel"
+  }
+}
